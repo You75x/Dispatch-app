@@ -4,17 +4,19 @@ import pandas as pd
 import folium
 from streamlit_folium import st_folium
 import openrouteservice
-from openrouteservice import convert
+from geopy.geocoders import Nominatim
+from geopy.extra.rate_limiter import RateLimiter
 
-# Titre de l'application
+st.set_page_config(page_title="Dispatching", layout="wide")
+
 st.title("🛻 Application de Dispatching Simplifié")
 st.markdown("Ajoute tes adresses de **collecte** et **livraison** avec les horaires, puis visualise la tournée optimisée sur une carte.")
 
-# Initialisation de session state
+# Initialisation
 if "taches" not in st.session_state:
     st.session_state.taches = []
 
-# Formulaire d'ajout
+# Ajout d'une tâche
 with st.form("ajouter_tache"):
     col1, col2 = st.columns(2)
     with col1:
@@ -35,18 +37,22 @@ with st.form("ajouter_tache"):
             "Commentaire": commentaire
         })
 
-# Affichage des tâches
+# Affichage et suppression
 if st.session_state.taches:
     st.subheader("📋 Liste des points")
     df = pd.DataFrame(st.session_state.taches)
-    st.dataframe(df, use_container_width=True)
+    for i in range(len(df)):
+        col1, col2 = st.columns([6, 1])
+        with col1:
+            st.markdown(f"{i+1}. **{df.iloc[i]['Type']}** – {df.iloc[i]['Adresse']} – {df.iloc[i]['Heure']} – Priorité {df.iloc[i]['Priorité']}")
+        with col2:
+            if st.button("❌", key=f"del_{i}"):
+                st.session_state.taches.pop(i)
+                st.experimental_rerun()
 else:
     st.info("Ajoute au moins une adresse pour commencer.")
 
-# Fonction de géocodage simple avec Nominatim (sans clé API)
-from geopy.geocoders import Nominatim
-from geopy.extra.rate_limiter import RateLimiter
-
+# Fonction de géocodage
 @st.cache_data
 def geocode_adresses(adresses):
     geolocator = Nominatim(user_agent="dispatch_app")
@@ -58,7 +64,7 @@ def geocode_adresses(adresses):
             coords.append((location.latitude, location.longitude))
     return coords
 
-# Optimisation et affichage carte
+# Carte
 if st.button("🗺️ Optimiser et afficher la tournée") and st.session_state.taches:
     with st.spinner("Géocodage des adresses..."):
         adresses = [t["Adresse"] for t in st.session_state.taches]
@@ -67,8 +73,7 @@ if st.button("🗺️ Optimiser et afficher la tournée") and st.session_state.t
     if len(coords) < 2:
         st.warning("Il faut au moins deux adresses valides.")
     else:
-        # Affichage carte avec folium
-        st.subheader("🗺️ Carte de la tournée optimisée (ordre non dynamique)")
+        st.subheader("🗺️ Carte de la tournée")
         carte = folium.Map(location=coords[0], zoom_start=6)
         for i, (lat, lon) in enumerate(coords):
             folium.Marker(
@@ -77,6 +82,5 @@ if st.button("🗺️ Optimiser et afficher la tournée") and st.session_state.t
                 tooltip=f"Étape {i+1}",
                 icon=folium.Icon(color="blue" if st.session_state.taches[i]["Type"] == "Collecte" else "green")
             ).add_to(carte)
-
         folium.PolyLine(coords, color="red", weight=3).add_to(carte)
         st_folium(carte, width=700, height=500)
